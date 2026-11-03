@@ -27,6 +27,10 @@ dotenv.config();
 // Set ffmpeg path
 ffmpeg.setFfmpegPath(ffmpegPath);
 
+// Pass Remote IP
+
+app.set('trust proxy', true);
+
 // Validate ffmpeg binary is executable for current runtime user (important for non-root containers)
 try {
   if (!ffmpegPath) {
