@@ -5,7 +5,7 @@ import https from 'node:https';
 import fetch from 'node-fetch';
 import { isUnsafeIP } from '../../utils/helpers.js';
 
-export const AI_TIMEOUT_MS = 30000;
+export const AI_TIMEOUT_MS = 120000;
 export const AI_MAX_BYTES = 512 * 1024;
 const specialV6 = new BlockList();
 for (const [network,prefix] of [['2001::',23],['2001:db8::',32],['2002::',16],['3fff::',20]]) specialV6.addSubnet(network,prefix,'ipv6');
