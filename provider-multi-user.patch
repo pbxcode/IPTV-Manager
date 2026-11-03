@@ -1,0 +1,391 @@
+diff --git a/public/app.js b/public/app.js
+index a6d3c7d..2ca963b 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -1018,15 +1018,19 @@ function updateCopyUserSelect(users) {
+ function updateProviderUserSelect(users) {
+   const select = document.getElementById('provider-user-select');
+   if (!select) return;
+-  const currentVal = select.value;
+-  select.innerHTML = `<option value="">${t('selectUserPlaceholder')}</option>`;
++  const currentVals = Array.from(select.selectedOptions).map(o => o.value);
++  select.innerHTML = '';
+   users.forEach(u => {
+     const opt = document.createElement('option');
+     opt.value = u.id;
+     opt.textContent = u.username;
+     select.appendChild(opt);
+   });
+-  if (currentVal) select.value = currentVal;
++  // Restore previous selections if still valid
++  currentVals.forEach(val => {
++    const opt = select.querySelector(`option[value="${val}"]`);
++    if (opt) opt.selected = true;
++  });
+ }
+ 
+ function showEditUserModal(user) {
+@@ -1296,6 +1300,13 @@ function updateChannelProviderSelect(providers) {
+ function prepareEditProvider(p) {
+   const form = document.getElementById('provider-form');
+   form.provider_id.value = p.id;
++  // Set assigned users
++  const userSelect = document.getElementById('provider-user-select');
++  if (userSelect && p.assigned_user_ids) {
++    Array.from(userSelect.options).forEach(opt => {
++      opt.selected = p.assigned_user_ids.includes(Number(opt.value));
++    });
++  }
+   form.name.value = p.name;
+   form.url.value = p.url;
+   form.username.value = p.username;
+@@ -2462,6 +2473,11 @@ document.getElementById('provider-form').addEventListener('submit', async e => {
+       backupUrls = backupInput.value.split('\n').map(u => u.trim()).filter(u => u);
+   }
+ 
++  const userSelect = document.getElementById('provider-user-select');
++  const selectedUserIds = userSelect
++    ? Array.from(userSelect.selectedOptions).map(o => Number(o.value)).filter(id => id > 0)
++    : [];
++
+   const body = {
+     name: f.name.value,
+     url: f.url.value,
+@@ -2469,7 +2485,8 @@ document.getElementById('provider-form').addEventListener('submit', async e => {
+     password: f.password.value,
+     epg_url: f.epg_url.value || null,
+     user_agent: f.user_agent.value || null,
+-    user_id: f.user_id.value || null,
++    user_id: selectedUserIds[0] || f.user_id.value || null,
++    user_ids: selectedUserIds,
+     epg_update_interval: f.epg_update_interval.value,
+     epg_enabled: f.epg_enabled.checked,
+     use_mapped_epg_icon: f.use_mapped_epg_icon.checked,
+diff --git a/public/index.html b/public/index.html
+index 2566579..8cce26a 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -1309,9 +1309,15 @@
+         <form id="provider-form">
+           <div class="modal-body">
+              <input type="hidden" name="provider_id" value="">
+-             <!-- Hidden user_id, set by JS -->
++             <!-- Hidden user_id, set by JS (legacy) -->
+              <input type="hidden" name="user_id" value="">
+ 
++             <div class="mb-3">
++                <label class="form-label" data-i18n="assignUsers" for="provider-user-select">Assign to Users</label>
++                <select class="form-select" id="provider-user-select" multiple size="6"></select>
++                <div class="form-text small">Select one or more users (Ctrl/Cmd + click). Leave empty for no assignment.</div>
++             </div>
++
+              <div class="row mb-3">
+                 <div class="col-md-6">
+                    <label class="form-label" data-i18n="name" for="provider-name">Name</label>
+diff --git a/src/controllers/epgMappingController.js b/src/controllers/epgMappingController.js
+index 2e23916..73afe2a 100644
+--- a/src/controllers/epgMappingController.js
++++ b/src/controllers/epgMappingController.js
+@@ -3,6 +3,7 @@ import path from 'path';
+ import { randomUUID } from 'crypto';
+ import { Worker } from 'worker_threads';
+ import db from '../database/db.js';
++import { isUserAssignedToProvider } from '../utils/helpers.js';
+ import { immediateTransaction } from '../database/sqliteWrites.js';
+ import { clearChannelsCache } from '../services/cacheService.js';
+ import { loadAllEpgChannels } from '../services/epgService.js';
+@@ -119,7 +120,7 @@ export const getMappings = (req, res) => {
+     }
+     if (!req.user.is_admin) {
+       const provider = db.prepare('SELECT user_id FROM providers WHERE id = ?').get(id);
+-      if (!provider || provider.user_id !== req.user.id) {
++      if (!provider || (!req.user.is_admin && !isUserAssignedToProvider(db, req.user.id, provider.id))) {
+         return res.status(403).json({error: 'Access denied'});
+       }
+     }
+diff --git a/src/controllers/providerCatalogController.js b/src/controllers/providerCatalogController.js
+index 1152c93..8667a61 100644
+--- a/src/controllers/providerCatalogController.js
++++ b/src/controllers/providerCatalogController.js
+@@ -1,5 +1,6 @@
+ import { rewriteClientMetadata } from '../services/clientResourceService.js';
+ import db from '../database/db.js';
++import { isUserAssignedToProvider } from '../utils/helpers.js';
+ import { fetchSafe, readBodyWithLimit } from '../utils/network.js';
+ import { decrypt } from '../utils/crypto.js';
+ import { isAdultCategory } from '../utils/helpers.js';
+@@ -12,7 +13,7 @@ export const getProviderChannels = (req, res) => {
+     let provider;
+     if (!req.user.is_admin) {
+         provider = db.prepare('SELECT user_id, url FROM providers WHERE id = ?').get(providerId);
+-        if (!provider || provider.user_id !== req.user.id) return res.status(403).json({error: 'Access denied'});
++        if (!provider || (!req.user.is_admin && !isUserAssignedToProvider(db, req.user.id, provider.id))) return res.status(403).json({error: 'Access denied'});
+     }
+ 
+     const canViewChannelMetadata = req.user.is_admin || Number(req.user.provider_access) === 1;
+@@ -79,7 +80,7 @@ export const getProviderCategories = async (req, res) => {
+     const provider = db.prepare('SELECT * FROM providers WHERE id = ?').get(id);
+     if (!provider) return res.status(404).json({error: 'Provider not found'});
+ 
+-    if (!req.user.is_admin && provider.user_id !== req.user.id) {
++    if (!req.user.is_admin && !isUserAssignedToProvider(db, req.user.id, provider.id)) {
+         return res.status(403).json({error: 'Access denied'});
+     }
+ 
+diff --git a/src/controllers/providerController.js b/src/controllers/providerController.js
+index abfcd3d..fdb8d66 100644
+--- a/src/controllers/providerController.js
++++ b/src/controllers/providerController.js
+@@ -14,6 +14,34 @@ import { importCategory, importCategories } from './providerCategoryImportContro
+ 
+ export { getProviderChannels, getProviderCategories, importCategory, importCategories };
+ 
++function setProviderUserAssignments(providerId, userIds) {
++  const ids = Array.isArray(userIds)
++    ? [...new Set(userIds.map(Number).filter(id => Number.isInteger(id) && id > 0))]
++    : [];
++
++  immediateTransaction(db, () => {
++    db.prepare('DELETE FROM provider_user_assignments WHERE provider_id = ?').run(providerId);
++    if (ids.length) {
++      const insert = db.prepare('INSERT OR IGNORE INTO provider_user_assignments (provider_id, user_id) VALUES (?, ?)');
++      for (const uid of ids) {
++        insert.run(providerId, uid);
++      }
++    }
++  });
++  return ids;
++}
++
++function getAssignedUserIds(providerId) {
++  return db.prepare('SELECT user_id FROM provider_user_assignments WHERE provider_id = ? ORDER BY user_id').all(providerId).map(r => r.user_id);
++}
++
++function isUserAssignedToProvider(userId, providerId) {
++  if (!userId || !providerId) return false;
++  const row = db.prepare('SELECT 1 FROM provider_user_assignments WHERE provider_id = ? AND user_id = ?').get(providerId, userId);
++  return !!row;
++}
++
++
+ const normalizeProviderBaseUrl = (url) => String(url || '').trim().replace(/\/+$/, '');
+ const isHttpUrl = (url) => /^https?:\/\//i.test(url);
+ const replaceDefaultEpgProviderUrl = (epgUrl, fromBase, toBase) => {
+@@ -69,7 +97,10 @@ export const getProviders = (req, res) => {
+     const params = [];
+ 
+     if (user_id) {
+-      query += ' WHERE p.user_id = ?';
++      query += ` WHERE EXISTS (
++        SELECT 1 FROM provider_user_assignments pua
++        WHERE pua.provider_id = p.id AND pua.user_id = ?
++      )`;
+       params.push(Number(user_id));
+     }
+ 
+@@ -77,7 +108,7 @@ export const getProviders = (req, res) => {
+     const canViewProviderDetails = req.user.is_admin || Number(req.user.provider_access) === 1;
+     const safeProviders = providers.map(p => {
+       if (!canViewProviderDetails) {
+-        return {id: p.id, name: p.name, user_id: p.user_id};
++        return {id: p.id, name: p.name, user_id: p.user_id, assigned_user_ids: getAssignedUserIds(p.id)};
+       }
+ 
+       let lastUpdate = p.last_epg_update || 0;
+@@ -99,7 +130,8 @@ export const getProviders = (req, res) => {
+         password: '********',
+         plain_password: plainPassword || '********',
+         epg_last_updated: lastUpdate,
+-        backup_urls: backupUrls
++        backup_urls: backupUrls,
++        assigned_user_ids: getAssignedUserIds(p.id)
+       };
+     });
+     res.json(safeProviders);
+@@ -109,7 +141,7 @@ export const getProviders = (req, res) => {
+ export const createProvider = async (req, res) => {
+   try {
+     if (!req.user.is_admin) return res.status(403).json({error: 'Access denied'});
+-    const { name, url, username, password, epg_url, user_id, epg_update_interval, epg_enabled, backup_urls, user_agent, max_connections, use_mapped_epg_icon, timeshift_timezone } = req.body;
++    const { name, url, username, password, epg_url, user_id, user_ids, epg_update_interval, epg_enabled, backup_urls, user_agent, max_connections, use_mapped_epg_icon, timeshift_timezone } = req.body;
+     if (!name || !url || !username || !password) return res.status(400).json({error: 'missing'});
+ 
+     const parsedTimezone = parseTimeshiftTimezone(timeshift_timezone);
+@@ -216,6 +248,12 @@ export const createProvider = async (req, res) => {
+       parsedTimezone.value
+     );
+ 
++    // Assign users (many-to-many)
++    const assignedIds = Array.isArray(user_ids) && user_ids.length
++      ? user_ids
++      : (user_id ? [Number(user_id)] : []);
++    setProviderUserAssignments(info.lastInsertRowid, assignedIds);
++
+     // Check expiry
+     await checkProviderExpiry(info.lastInsertRowid);
+ 
+@@ -232,7 +270,7 @@ export const updateProvider = async (req, res) => {
+   try {
+     if (!req.user.is_admin) return res.status(403).json({error: 'Access denied'});
+     const id = Number(req.params.id);
+-    const { name, url, username, password, epg_url, user_id, epg_update_interval, epg_enabled, backup_urls, user_agent, max_connections, use_mapped_epg_icon, timeshift_timezone } = req.body;
++    const { name, url, username, password, epg_url, user_id, user_ids, epg_update_interval, epg_enabled, backup_urls, user_agent, max_connections, use_mapped_epg_icon, timeshift_timezone } = req.body;
+     if (!name || !url || !username || !password) {
+       return res.status(400).json({error: 'missing fields'});
+     }
+@@ -358,6 +396,12 @@ export const updateProvider = async (req, res) => {
+         id
+       );
+ 
++      // Update many-to-many assignments
++      const newAssigned = Array.isArray(user_ids) && user_ids.length
++        ? user_ids.map(Number).filter(id => Number.isInteger(id) && id > 0)
++        : (nextUserId ? [nextUserId] : []);
++      setProviderUserAssignments(id, newAssigned);
++
+       if (ownerChanged) {
+         db.prepare(`
+           UPDATE user_channels
+diff --git a/src/database/db.js b/src/database/db.js
+index 972b961..8413bb4 100644
+--- a/src/database/db.js
++++ b/src/database/db.js
+@@ -366,6 +366,8 @@ export function initDb(isPrimary) {
+             migrations.migrateUserChannelAdminGrants(db);
+             migrations.migrateSyncConfigAdminGrants(db);
+             migrations.migrateUserNotes(db);
++            migrations.migrateProviderUserAssignments(db);
++            migrations.migrateAuthorizedChannelsViewForAssignments(db);
+             if (typeof migrations.migrateProviderUseMappedEpgIcon === 'function') {
+                 migrations.migrateProviderUseMappedEpgIcon(db);
+             }
+diff --git a/src/database/migrationAssignments.js b/src/database/migrationAssignments.js
+index 0402910..46148a1 100644
+--- a/src/database/migrationAssignments.js
++++ b/src/database/migrationAssignments.js
+@@ -288,3 +288,60 @@ export function migrateUserNotes(db) {
+     console.error('User notes migration error:', e);
+   }
+ }
++
++export function migrateProviderUserAssignments(db) {
++  try {
++    db.exec(`
++      CREATE TABLE IF NOT EXISTS provider_user_assignments (
++        provider_id INTEGER NOT NULL,
++        user_id INTEGER NOT NULL,
++        PRIMARY KEY (provider_id, user_id),
++        FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE,
++        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
++      );
++      CREATE INDEX IF NOT EXISTS idx_pua_user ON provider_user_assignments(user_id);
++      CREATE INDEX IF NOT EXISTS idx_pua_provider ON provider_user_assignments(provider_id);
++    `);
++
++    // Migrate existing single owners
++    const migrated = db.prepare(`
++      INSERT OR IGNORE INTO provider_user_assignments (provider_id, user_id)
++      SELECT id, user_id FROM providers WHERE user_id IS NOT NULL
++    `).run().changes;
++
++    if (migrated > 0) {
++      console.log(`✅ DB Migration: migrated ${migrated} provider-user assignments`);
++    } else {
++      console.log('✅ DB Migration: provider_user_assignments table ready');
++    }
++  } catch (e) {
++    console.error('Provider user assignments migration error:', e);
++  }
++}
++
++export function migrateAuthorizedChannelsViewForAssignments(db) {
++  try {
++    db.exec(`
++      DROP VIEW IF EXISTS authorized_user_channels;
++      CREATE VIEW authorized_user_channels AS
++      SELECT uc.*
++      FROM user_channels uc
++      JOIN user_categories cat ON cat.id = uc.user_category_id
++      JOIN provider_channels pc ON pc.id = uc.provider_channel_id
++      JOIN providers p ON p.id = pc.provider_id
++      WHERE uc.is_hidden = 0
++        AND uc.authorization_revoked = 0
++        AND (
++          uc.granted_by_admin = 1
++          OR EXISTS (
++            SELECT 1 FROM provider_user_assignments pua
++            WHERE pua.provider_id = p.id AND pua.user_id = cat.user_id
++          )
++          OR p.user_id = cat.user_id
++        )
++    `);
++    console.log('✅ DB Migration: authorized_user_channels view updated for multi-user assignments');
++  } catch (e) {
++    console.error('Authorized channels view migration error:', e);
++  }
++}
+diff --git a/src/services/clientResourceService.js b/src/services/clientResourceService.js
+index 5e13eac..c3a0a55 100644
+--- a/src/services/clientResourceService.js
++++ b/src/services/clientResourceService.js
+@@ -1,4 +1,5 @@
+ import db from '../database/db.js';
++import { isUserAssignedToProvider } from '../utils/helpers.js';
+ import epgDb from '../database/epgDb.js';
+ import crypto from 'node:crypto';
+ import { decrypt, encrypt, ENCRYPTION_KEY } from '../utils/crypto.js';
+@@ -232,7 +233,7 @@ export async function resolveClientResource(req) {
+     if (!shareAllowed(authorizedUser, payload.channelId)) return null;
+     if (payload.providerId && !payload.channelId) {
+       const provider = db.prepare('SELECT user_id FROM providers WHERE id = ?').get(payload.providerId);
+-      if (!provider || (!payload.admin && Number(provider.user_id) !== Number(user.id))) return null;
++      if (!provider || (!payload.admin && !isUserAssignedToProvider(db, user.id, provider.id))) return null;
+     }
+ 
+     let channel;
+diff --git a/src/services/syncService.js b/src/services/syncService.js
+index 9b6969a..3f7ca4e 100644
+--- a/src/services/syncService.js
++++ b/src/services/syncService.js
+@@ -1,6 +1,7 @@
+ import { createHash } from 'node:crypto';
+ import { clearChannelsCache } from '../services/cacheService.js';
+ import db from '../database/db.js';
++import { isUserAssignedToProvider } from '../utils/helpers.js';
+ import { discardBody, fetchSafe, readBodyWithLimit } from '../utils/network.js';
+ import { decrypt } from '../utils/crypto.js';
+ import { isAdultCategory, sanitizeErrorMessage } from '../utils/helpers.js';
+@@ -501,7 +502,7 @@ export async function performSync(providerId, userId, options = {}) {
+     if (!provider) throw new Error('Provider not found');
+     assertManualSyncActor(options);
+     assertQueuedSyncExpectation(provider, config, options);
+-    const crossOwner = Number(provider.user_id) !== Number(userId);
++    const crossOwner = !isUserAssignedToProvider(db, userId, providerId);
+     const hasPersistedGrant = Number(config?.granted_by_admin) === 1;
+     const hasManualGrant = isManual && options?.allowCrossOwner === true;
+ 
+@@ -537,7 +538,7 @@ export async function performSync(providerId, userId, options = {}) {
+     const applyStartedAt = Date.now();
+     immediateTransaction(db, () => {
+       config = assertSyncTargetStillValid(providerId, userId, provider, options, config);
+-      const crossOwner = Number(provider.user_id) !== Number(userId);
++      const crossOwner = !isUserAssignedToProvider(db, userId, providerId);
+       const hasPersistedGrant = Number(config?.granted_by_admin) === 1;
+       const assignmentGrant = crossOwner ? 1 : 0;
+       const restoreRevokedAssignments = crossOwner && (
+diff --git a/src/utils/helpers.js b/src/utils/helpers.js
+index 00a09cf..124a8cb 100644
+--- a/src/utils/helpers.js
++++ b/src/utils/helpers.js
+@@ -313,3 +313,11 @@ export function resolveAssignmentGrant({
+ 
+   return isAdmin && allowExplicitAdminGrant ? 1 : null;
+ }
++
++export function isUserAssignedToProvider(db, userId, providerId) {
++  if (!userId || !providerId) return false;
++  const row = db.prepare(
++    'SELECT 1 FROM provider_user_assignments WHERE provider_id = ? AND user_id = ?'
++  ).get(providerId, userId);
++  return !!row;
++}
