@@ -1,0 +1,52 @@
+diff --git a/src/services/syncService.js b/src/services/syncService.js
+index 9b6969a..79877f5 100644
+--- a/src/services/syncService.js
++++ b/src/services/syncService.js
+@@ -1,9 +1,11 @@
+ import { createHash } from 'node:crypto';
+ import { clearChannelsCache } from '../services/cacheService.js';
+ import db from '../database/db.js';
++import { isUserAssignedToProvider } from '../utils/helpers.js';
+ import { discardBody, fetchSafe, readBodyWithLimit } from '../utils/network.js';
+ import { decrypt } from '../utils/crypto.js';
+ import { isAdultCategory, sanitizeErrorMessage } from '../utils/helpers.js';
++import { cleanStreamTitle } from '../utils/streamTitleCleaner.js';
+ import { normalizeContainerExtension } from '../utils/containerExtension.js';
+ import { prePopulateProviderIconCache } from './logoResolver.js';
+ import { isTrustedMappingAssignment } from './userChannelAssignmentService.js';
+@@ -501,7 +503,7 @@ export async function performSync(providerId, userId, options = {}) {
+     if (!provider) throw new Error('Provider not found');
+     assertManualSyncActor(options);
+     assertQueuedSyncExpectation(provider, config, options);
+-    const crossOwner = Number(provider.user_id) !== Number(userId);
++    const crossOwner = !isUserAssignedToProvider(db, userId, providerId);
+     const hasPersistedGrant = Number(config?.granted_by_admin) === 1;
+     const hasManualGrant = isManual && options?.allowCrossOwner === true;
+ 
+@@ -537,7 +539,7 @@ export async function performSync(providerId, userId, options = {}) {
+     const applyStartedAt = Date.now();
+     immediateTransaction(db, () => {
+       config = assertSyncTargetStillValid(providerId, userId, provider, options, config);
+-      const crossOwner = Number(provider.user_id) !== Number(userId);
++      const crossOwner = !isUserAssignedToProvider(db, userId, providerId);
+       const hasPersistedGrant = Number(config?.granted_by_admin) === 1;
+       const assignmentGrant = crossOwner ? 1 : 0;
+       const restoreRevokedAssignments = crossOwner && (
+@@ -847,7 +849,7 @@ export async function performSync(providerId, userId, options = {}) {
+           if (existingId) {
+             // Optimization: Check if update is needed
+             // Normalize values for comparison (DB returns numbers/nulls, inputs might be different types)
+-            const newName = ch.name || 'Unknown';
++            const newName = cleanStreamTitle(ch.name || 'Unknown');
+             const newCatId = Number(ch.category_id || 0);
+             const newLogo = ch.stream_icon || ch.cover || '';
+             const newEpgId = ch.epg_channel_id || '';
+@@ -954,7 +956,7 @@ export async function performSync(providerId, userId, options = {}) {
+             const info = insertChannel.run(
+               providerId,
+               sid,
+-              ch.name || 'Unknown',
++              cleanStreamTitle(ch.name || 'Unknown'),
+               Number(ch.category_id || 0),
+               ch.stream_icon || ch.cover || '',
+               streamType,
