@@ -5823,21 +5823,26 @@ async function deletePlaylist(id, name) {
   loadPlaylists();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// Bind playlist buttons immediately
+(function bindPlaylistUI() {
   const addBtn = document.getElementById('add-playlist-btn');
   if (addBtn) addBtn.onclick = () => openPlaylistModal();
-  const saveBtn = document.getElementById('save-playlist-btn');
-  if (saveBtn) saveBtn.onclick = savePlaylist;
 
-  // Hook into view switching if the app uses data-view
-  document.querySelectorAll('[data-view="playlists"]').forEach(el => {
-    el.addEventListener('click', () => {
-      document.querySelectorAll('section[id^="view-"]').forEach(s => s.classList.add('d-none'));
-      document.getElementById('view-playlists')?.classList.remove('d-none');
-      loadPlaylists();
-    });
-  });
-});
+  const saveBtn = document.getElementById('save-playlist-btn');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      try {
+        saveBtn.disabled = true;
+        await savePlaylist();
+      } catch (e) {
+        alert('Save failed: ' + (e.message || e));
+        console.error(e);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    };
+  }
+})();
 
 // Channel picker for playlists
 async function openChannelPicker() {
