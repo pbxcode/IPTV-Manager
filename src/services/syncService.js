@@ -4,6 +4,7 @@ import db from '../database/db.js';
 import { discardBody, fetchSafe, readBodyWithLimit } from '../utils/network.js';
 import { decrypt } from '../utils/crypto.js';
 import { isAdultCategory, sanitizeErrorMessage } from '../utils/helpers.js';
+import { cleanStreamTitle } from '../utils/streamTitleCleaner.js';
 import { normalizeContainerExtension } from '../utils/containerExtension.js';
 import { prePopulateProviderIconCache } from './logoResolver.js';
 import { isTrustedMappingAssignment } from './userChannelAssignmentService.js';
@@ -847,7 +848,7 @@ export async function performSync(providerId, userId, options = {}) {
           if (existingId) {
             // Optimization: Check if update is needed
             // Normalize values for comparison (DB returns numbers/nulls, inputs might be different types)
-            const newName = ch.name || 'Unknown';
+            const newName = cleanStreamTitle(ch.name || 'Unknown');
             const newCatId = Number(ch.category_id || 0);
             const newLogo = ch.stream_icon || ch.cover || '';
             const newEpgId = ch.epg_channel_id || '';
@@ -954,7 +955,7 @@ export async function performSync(providerId, userId, options = {}) {
             const info = insertChannel.run(
               providerId,
               sid,
-              ch.name || 'Unknown',
+              cleanStreamTitle(ch.name || 'Unknown'),
               Number(ch.category_id || 0),
               ch.stream_icon || ch.cover || '',
               streamType,
