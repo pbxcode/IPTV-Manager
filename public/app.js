@@ -5697,6 +5697,8 @@ async function deleteUserBackup(backupId, backupName) {
 }
 
 // === Playlists ===
+
+// === Playlists ===
 async function loadPlaylists() {
   const list = document.getElementById('playlist-list');
   if (!list) return;
@@ -5787,7 +5789,10 @@ async function savePlaylist() {
     description: document.getElementById('playlist-description').value.trim(),
     is_public: document.getElementById('playlist-public').checked
   };
-  if (!body.name) return alert('Name is required');
+  if (!body.name) {
+    alert('Name is required');
+    return;
+  }
 
   let playlistId = id;
   if (id) {
@@ -5802,6 +5807,7 @@ async function savePlaylist() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
+    if (!res || !res.id) throw new Error('No playlist id returned');
     playlistId = res.id;
     document.getElementById('playlist-id').value = playlistId;
   }
@@ -5813,8 +5819,9 @@ async function savePlaylist() {
     body: JSON.stringify({ zip_codes: zips })
   });
 
-  bootstrap.Modal.getInstance(document.getElementById('playlist-modal')).hide();
-  loadPlaylists();
+  const modal = bootstrap.Modal.getInstance(document.getElementById('playlist-modal'));
+  if (modal) modal.hide();
+  await loadPlaylists();
 }
 
 async function deletePlaylist(id, name) {
@@ -5823,28 +5830,7 @@ async function deletePlaylist(id, name) {
   loadPlaylists();
 }
 
-// Bind playlist buttons immediately
-(function bindPlaylistUI() {
-  const addBtn = document.getElementById('add-playlist-btn');
-  if (addBtn) addBtn.onclick = () => openPlaylistModal();
-
-  const saveBtn = document.getElementById('save-playlist-btn');
-  if (saveBtn) {
-    saveBtn.onclick = async () => {
-      try {
-        saveBtn.disabled = true;
-        await savePlaylist();
-      } catch (e) {
-        alert('Save failed: ' + (e.message || e));
-        console.error(e);
-      } finally {
-        saveBtn.disabled = false;
-      }
-    };
-  }
-})();
-
-// Channel picker for playlists
+// Channel picker
 async function openChannelPicker() {
   const playlistId = document.getElementById('playlist-id').value;
   if (!playlistId) {
@@ -5926,6 +5912,26 @@ async function addSelectedChannels() {
   }
 }
 
-// Wire the Add Channels button
-const addChBtn = document.getElementById('playlist-add-channels-btn');
-if (addChBtn) addChBtn.onclick = openChannelPicker;
+// Bind all playlist UI after DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = document.getElementById('add-playlist-btn');
+  if (addBtn) addBtn.onclick = () => openPlaylistModal();
+
+  const saveBtn = document.getElementById('save-playlist-btn');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      try {
+        saveBtn.disabled = true;
+        await savePlaylist();
+      } catch (e) {
+        alert('Save failed: ' + (e.message || e));
+        console.error(e);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    };
+  }
+
+  const addChBtn = document.getElementById('playlist-add-channels-btn');
+  if (addChBtn) addChBtn.onclick = openChannelPicker;
+});
