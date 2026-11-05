@@ -288,3 +288,61 @@ export function migrateUserNotes(db) {
     console.error('User notes migration error:', e);
   }
 }
+
+export function migratePlaylists(db) {
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS playlists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        owner_user_id INTEGER,
+        created_by INTEGER,
+        is_public INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+        FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS playlist_zip_codes (
+        playlist_id INTEGER NOT NULL,
+        zip_code TEXT NOT NULL,
+        PRIMARY KEY (playlist_id, zip_code),
+        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS playlist_channels (
+        playlist_id INTEGER NOT NULL,
+        provider_channel_id INTEGER NOT NULL,
+        sort_order INTEGER DEFAULT 0,
+        PRIMARY KEY (playlist_id, provider_channel_id),
+        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+        FOREIGN KEY (provider_channel_id) REFERENCES provider_channels(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS user_playlists (
+        user_id INTEGER NOT NULL,
+        playlist_id INTEGER NOT NULL,
+        assigned_at INTEGER DEFAULT (strftime('%s', 'now')),
+        PRIMARY KEY (user_id, playlist_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_playlist_zip_code ON playlist_zip_codes(zip_code);
+      CREATE INDEX IF NOT EXISTS idx_playlist_channels_playlist ON playlist_channels(playlist_id);
+      CREATE INDEX IF NOT EXISTS idx_user_playlists_user ON user_playlists(user_id);
+    `);
+
+    const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+    if (!userCols.includes('zip_code')) {
+      db.exec('ALTER TABLE users ADD COLUMN zip_code TEXT');
+      console.log('✅ DB Migration: zip_code column added to users');
+    }
+
+    console.log('✅ DB Migration: playlists tables ready');
+  } catch (e) {
+    console.error('Playlists migration error:', e);
+  }
+}
