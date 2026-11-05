@@ -9,6 +9,7 @@ import { redactUrl } from './utils/helpers.js';
 import { resolveClientResource, resolveCompactLicenseResource } from './services/clientResourceService.js';
 
 import authRoutes from './routes/auth.js';
+import playlistRoutes from './routes/playlists.js';
 import userRoutes from './routes/users.js';
 import providerRoutes from './routes/providers.js';
 import channelRoutes from './routes/channels.js';
@@ -108,6 +109,7 @@ app.use('/api', systemRoutes);
 app.use('/api/shares', shareRoutes);
 app.use('/api/proxy', proxyRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api', playlistRoutes);
 app.use('/', streamRoutes);
 app.use('/', xtreamRoutes);
 app.use('/', stalkerRoutes);
