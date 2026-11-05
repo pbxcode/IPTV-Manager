@@ -83,7 +83,12 @@ export const createPlaylist = (req, res) => {
     const { name, description, is_public, owner_user_id } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
 
-    const ownerId = req.user.is_admin && owner_user_id ? Number(owner_user_id) : req.user.id;
+    // Admins are in admin_users, not users — store null to satisfy the FK
+    const ownerId = req.user.is_admin
+      ? (owner_user_id ? Number(owner_user_id) : null)
+      : req.user.id;
+    const createdBy = req.user.is_admin ? null : req.user.id;
+
     const info = db.prepare(`
       INSERT INTO playlists (name, description, owner_user_id, created_by, is_public)
       VALUES (?, ?, ?, ?, ?)
@@ -91,7 +96,7 @@ export const createPlaylist = (req, res) => {
       name.trim(),
       description?.trim() || null,
       ownerId,
-      req.user.id,
+      createdBy,
       is_public ? 1 : 0
     );
 
