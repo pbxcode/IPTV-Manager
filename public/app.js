@@ -5769,7 +5769,7 @@ function renderPlaylistChannels(channels) {
     const div = document.createElement('div');
     div.className = 'd-flex justify-content-between align-items-center py-1 border-bottom';
     div.innerHTML = `
-      <span class="small">${escapeHtml(ch.name)} <span class="text-muted">(${escapeHtml(ch.provider_name || '')})</span></span>
+      <span class="small">${escapeHtml(ch.name)} <span class="text-muted">(${escapeHtml(ch.provider_name || '')}${ch.category_label ? ' · ' + escapeHtml(ch.category_label) : ''})</span></span>
       <button class="btn btn-sm btn-outline-danger" data-remove="${ch.provider_channel_id}">×</button>
     `;
     div.querySelector('[data-remove]').onclick = async () => {
@@ -5990,6 +5990,72 @@ async function unassignPlaylistUsers() {
   alert('Unassigned');
 }
 
+
+async function openCategoryPicker() {
+  const playlistId = document.getElementById('playlist-id').value;
+  if (!playlistId) return alert('Save the playlist first');
+
+  const modal = new bootstrap.Modal(document.getElementById('category-picker-modal'));
+  const providerSelect = document.getElementById('cat-picker-provider');
+  const categorySelect = document.getElementById('cat-picker-category');
+  const info = document.getElementById('cat-picker-info');
+  providerSelect.innerHTML = '<option value="">Select provider</option>';
+  categorySelect.innerHTML = '<option value="">Select category</option>';
+  info.textContent = '';
+
+  try {
+    const providers = await fetchJSON('/api/providers');
+    providers.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      providerSelect.appendChild(opt);
+    });
+  } catch (e) {
+    info.textContent = 'Failed to load providers';
+  }
+
+  providerSelect.onchange = async () => {
+    const pid = providerSelect.value;
+    categorySelect.innerHTML = '<option value="">Loading...</option>';
+    if (!pid) return;
+    try {
+      const cats = await fetchJSON(`/api/providers/${pid}/categories?type=live`);
+      categorySelect.innerHTML = '<option value="">Select category</option>';
+      cats.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.category_id;
+        opt.textContent = `${c.category_name} (${c.channel_count || 0})`;
+        opt.dataset.name = c.category_name;
+        categorySelect.appendChild(opt);
+      });
+    } catch (e) {
+      categorySelect.innerHTML = '<option value="">Failed to load</option>';
+    }
+  };
+
+  document.getElementById('cat-picker-add-btn').onclick = async () => {
+    const providerId = providerSelect.value;
+    const categoryId = categorySelect.value;
+    const categoryName = categorySelect.selectedOptions[0]?.dataset.name || '';
+    if (!providerId || !categoryId) return alert('Select a provider and category');
+    try {
+      const res = await fetchJSON(`/api/playlists/${playlistId}/category`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ provider_id: Number(providerId), category_id: Number(categoryId), category_name: categoryName })
+      });
+      bootstrap.Modal.getInstance(document.getElementById('category-picker-modal')).hide();
+      alert(`Imported ${res.added} channels from "${categoryName}"`);
+      openPlaylistModal(playlistId);
+    } catch (e) {
+      alert('Import failed: ' + e.message);
+    }
+  };
+
+  modal.show();
+}
+
 // Bind all playlist UI after DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   const addBtn = document.getElementById('add-playlist-btn');
@@ -6012,6 +6078,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const addChBtn = document.getElementById('playlist-add-channels-btn');
   if (addChBtn) addChBtn.onclick = openChannelPicker;
+  const addCatBtn = document.getElementById('playlist-add-category-btn');
+  if (addCatBtn) addCatBtn.onclick = openCategoryPicker;
 
   const assignBtn = document.getElementById('playlist-assign-btn');
   if (assignBtn) assignBtn.onclick = assignPlaylistUsers;
