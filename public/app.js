@@ -5827,23 +5827,104 @@ async function deletePlaylist(id, name) {
   loadPlaylists();
 }
 
-// Bind playlist buttons immediately
-(function bindPlaylistUI() {
+document.addEventListener('DOMContentLoaded', () => {
   const addBtn = document.getElementById('add-playlist-btn');
   if (addBtn) addBtn.onclick = () => openPlaylistModal();
-
   const saveBtn = document.getElementById('save-playlist-btn');
-  if (saveBtn) {
-    saveBtn.onclick = async () => {
-      try {
-        saveBtn.disabled = true;
-        await savePlaylist();
-      } catch (e) {
-        alert('Save failed: ' + (e.message || e));
-        console.error(e);
-      } finally {
-        saveBtn.disabled = false;
-      }
-    };
+  if (saveBtn) saveBtn.onclick = savePlaylist;
+
+  // Hook into view switching if the app uses data-view
+  document.querySelectorAll('[data-view="playlists"]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('section[id^="view-"]').forEach(s => s.classList.add('d-none'));
+      document.getElementById('view-playlists')?.classList.remove('d-none');
+      loadPlaylists();
+    });
+  });
+});
+
+// Channel picker for playlists
+async function openChannelPicker() {
+  const playlistId = document.getElementById('playlist-id').value;
+  if (!playlistId) {
+    alert('Save the playlist first, then add channels.');
+    return;
   }
-})();
+
+  const modal = new bootstrap.Modal(document.getElementById('channel-picker-modal'));
+  const providerSelect = document.getElementById('picker-provider');
+  const results = document.getElementById('picker-results');
+  results.innerHTML = '<div class="text-muted">Loading providers...</div>';
+
+  try {
+    const providers = await fetchJSON('/api/providers');
+    providerSelect.innerHTML = '<option value="">Select provider</option>';
+    providers.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      providerSelect.appendChild(opt);
+    });
+  } catch (e) {
+    results.innerHTML = `<div class="text-danger">${escapeHtml(e.message)}</div>`;
+  }
+
+  providerSelect.onchange = () => loadPickerChannels();
+  document.getElementById('picker-search').oninput = () => loadPickerChannels();
+  document.getElementById('picker-add-btn').onclick = addSelectedChannels;
+
+  modal.show();
+}
+
+async function loadPickerChannels() {
+  const providerId = document.getElementById('picker-provider').value;
+  const search = document.getElementById('picker-search').value.trim();
+  const results = document.getElementById('picker-results');
+  if (!providerId) {
+    results.innerHTML = '<div class="text-muted">Select a provider</div>';
+    return;
+  }
+  results.innerHTML = '<div class="text-muted">Loading...</div>';
+  try {
+    const url = `/api/providers/${providerId}/channels?type=live&limit=100&search=${encodeURIComponent(search)}`;
+    const data = await fetchJSON(url);
+    const channels = data.channels || data || [];
+    results.innerHTML = '';
+    if (!channels.length) {
+      results.innerHTML = '<div class="text-muted">No channels found</div>';
+      return;
+    }
+    channels.forEach(ch => {
+      const div = document.createElement('div');
+      div.className = 'form-check';
+      div.innerHTML = `
+        <input class="form-check-input picker-ch" type="checkbox" value="${ch.id}" id="pch-${ch.id}">
+        <label class="form-check-label small" for="pch-${ch.id}">${escapeHtml(ch.name)}</label>
+      `;
+      results.appendChild(div);
+    });
+  } catch (e) {
+    results.innerHTML = `<div class="text-danger">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function addSelectedChannels() {
+  const playlistId = document.getElementById('playlist-id').value;
+  const ids = Array.from(document.querySelectorAll('.picker-ch:checked')).map(el => Number(el.value));
+  if (!ids.length) return alert('Select at least one channel');
+  try {
+    await fetchJSON(`/api/playlists/${playlistId}/channels`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ channel_ids: ids })
+    });
+    bootstrap.Modal.getInstance(document.getElementById('channel-picker-modal')).hide();
+    openPlaylistModal(playlistId);
+  } catch (e) {
+    alert('Failed to add channels: ' + e.message);
+  }
+}
+
+// Wire the Add Channels button
+const addChBtn = document.getElementById('playlist-add-channels-btn');
+if (addChBtn) addChBtn.onclick = openChannelPicker;
