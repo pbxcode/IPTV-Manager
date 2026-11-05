@@ -13,6 +13,7 @@ router.delete('/playlists/:id', authenticateToken, playlistController.deletePlay
 
 router.put('/playlists/:id/zip-codes', authenticateToken, playlistController.setZipCodes);
 router.post('/playlists/:id/channels', authenticateToken, playlistController.addChannels);
+router.post('/playlists/:id/category', authenticateToken, playlistController.addCategory);
 router.delete('/playlists/:id/channels', authenticateToken, playlistController.removeChannels);
 
 router.post('/playlists/:id/assign', authenticateToken, playlistController.assignToUser);
