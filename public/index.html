@@ -47,6 +47,9 @@
           <li class="nav-item">
             <a class="nav-link" href="#" data-view="ai" id="nav-ai" data-i18n="ai_title">AI assistant</a>
           </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-view="playlists" id="nav-playlists">Playlists</a>
+          </li>
         </ul>
         <div class="d-flex align-items-center gap-2">
           <select id="language-selector" class="form-select form-select-sm bg-dark text-light border-secondary w-auto" data-i18n-label="selectLanguage">
@@ -74,6 +77,15 @@
     </section>
 
     <section id="view-ai" class="d-none" aria-labelledby="nav-ai"></section>
+    <section id="view-playlists" class="d-none" aria-labelledby="nav-playlists">
+      <div class="container-fluid">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h4>Playlists</h4>
+          <button class="btn btn-primary btn-sm" id="add-playlist-btn">New Playlist</button>
+        </div>
+        <div id="playlist-list" class="list-group"></div>
+      </div>
+    </section>
 
     <!-- View: Dashboard -->
     <div id="view-dashboard">
@@ -1309,8 +1321,14 @@
         <form id="provider-form">
           <div class="modal-body">
              <input type="hidden" name="provider_id" value="">
-             <!-- Hidden user_id, set by JS -->
+             <!-- Hidden user_id, set by JS (legacy) -->
              <input type="hidden" name="user_id" value="">
+
+             <div class="mb-3">
+                <label class="form-label" data-i18n="assignUsers" for="provider-user-select">Assign to Users</label>
+                <select class="form-select" id="provider-user-select" multiple size="6"></select>
+                <div class="form-text small">Select one or more users (Ctrl/Cmd + click). Leave empty for no assignment.</div>
+             </div>
 
              <div class="row mb-3">
                 <div class="col-md-6">
@@ -1512,5 +1530,46 @@
 
   <!-- Toast Container -->
   <div class="toast-container position-fixed bottom-0 end-0 p-3 z-1100" id="toast-container"></div>
+
+  <!-- Playlist Modal -->
+  <div class="modal fade" id="playlist-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="playlist-modal-title">Playlist</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="playlist-id">
+          <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input class="form-control" id="playlist-name" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" id="playlist-description" rows="2"></textarea>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="playlist-public">
+            <label class="form-check-label" for="playlist-public">Public</label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Zip Codes (one per line)</label>
+            <textarea class="form-control" id="playlist-zips" rows="4" placeholder="75201&#10;76102"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Channels</label>
+            <div id="playlist-channels-list" class="border rounded p-2" style="max-height:200px;overflow:auto;"></div>
+            <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="playlist-add-channels-btn">Add Channels</button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="save-playlist-btn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

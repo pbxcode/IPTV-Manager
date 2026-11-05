@@ -1018,15 +1018,19 @@ function updateCopyUserSelect(users) {
 function updateProviderUserSelect(users) {
   const select = document.getElementById('provider-user-select');
   if (!select) return;
-  const currentVal = select.value;
-  select.innerHTML = `<option value="">${t('selectUserPlaceholder')}</option>`;
+  const currentVals = Array.from(select.selectedOptions).map(o => o.value);
+  select.innerHTML = '';
   users.forEach(u => {
     const opt = document.createElement('option');
     opt.value = u.id;
     opt.textContent = u.username;
     select.appendChild(opt);
   });
-  if (currentVal) select.value = currentVal;
+  // Restore previous selections if still valid
+  currentVals.forEach(val => {
+    const opt = select.querySelector(`option[value="${val}"]`);
+    if (opt) opt.selected = true;
+  });
 }
 
 function showEditUserModal(user) {
@@ -1296,6 +1300,13 @@ function updateChannelProviderSelect(providers) {
 function prepareEditProvider(p) {
   const form = document.getElementById('provider-form');
   form.provider_id.value = p.id;
+  // Set assigned users
+  const userSelect = document.getElementById('provider-user-select');
+  if (userSelect && p.assigned_user_ids) {
+    Array.from(userSelect.options).forEach(opt => {
+      opt.selected = p.assigned_user_ids.includes(Number(opt.value));
+    });
+  }
   form.name.value = p.name;
   form.url.value = p.url;
   form.username.value = p.username;
@@ -2462,6 +2473,11 @@ document.getElementById('provider-form').addEventListener('submit', async e => {
       backupUrls = backupInput.value.split('\n').map(u => u.trim()).filter(u => u);
   }
 
+  const userSelect = document.getElementById('provider-user-select');
+  const selectedUserIds = userSelect
+    ? Array.from(userSelect.selectedOptions).map(o => Number(o.value)).filter(id => id > 0)
+    : [];
+
   const body = {
     name: f.name.value,
     url: f.url.value,
@@ -2469,7 +2485,8 @@ document.getElementById('provider-form').addEventListener('submit', async e => {
     password: f.password.value,
     epg_url: f.epg_url.value || null,
     user_agent: f.user_agent.value || null,
-    user_id: f.user_id.value || null,
+    user_id: selectedUserIds[0] || f.user_id.value || null,
+    user_ids: selectedUserIds,
     epg_update_interval: f.epg_update_interval.value,
     epg_enabled: f.epg_enabled.checked,
     use_mapped_epg_icon: f.use_mapped_epg_icon.checked,
@@ -3711,6 +3728,7 @@ function switchView(viewName) {
   document.getElementById('view-security').classList.add('d-none');
   document.getElementById('view-import-export').classList.add('d-none');
   document.getElementById('view-ai').classList.add('d-none');
+  document.getElementById('view-playlists')?.classList.add('d-none');
 
   // Stop stats interval if running
   if (statsInterval) {
@@ -3755,6 +3773,11 @@ function switchView(viewName) {
     document.getElementById('nav-import-export').classList.add('active');
     document.getElementById('nav-import-export').setAttribute('aria-current', 'page');
     loadUsers(); // Ensure dropdown is populated
+  } else if (viewName === 'playlists') {
+    document.getElementById('view-playlists')?.classList.remove('d-none');
+    document.getElementById('nav-playlists')?.classList.add('active');
+    document.getElementById('nav-playlists')?.setAttribute('aria-current', 'page');
+    loadPlaylists();
   }
 }
 
@@ -5672,3 +5695,150 @@ async function deleteUserBackup(backupId, backupName) {
         showToast(t('errorPrefix') + ' ' + e.message, 'danger');
     }
 }
+
+// === Playlists ===
+async function loadPlaylists() {
+  const list = document.getElementById('playlist-list');
+  if (!list) return;
+  list.innerHTML = '<div class="text-muted p-3">Loading...</div>';
+  try {
+    const playlists = await fetchJSON('/api/playlists');
+    list.innerHTML = '';
+    if (!playlists.length) {
+      list.innerHTML = '<div class="list-group-item text-muted">No playlists yet</div>';
+      return;
+    }
+    playlists.forEach(p => {
+      const item = document.createElement('div');
+      item.className = 'list-group-item d-flex justify-content-between align-items-center';
+      item.innerHTML = `
+        <div>
+          <strong>${escapeHtml(p.name)}</strong>
+          <div class="small text-muted">${p.channel_count || 0} channels · ${p.zip_count || 0} zip codes${p.is_public ? ' · Public' : ''}</div>
+        </div>
+        <div>
+          <button class="btn btn-sm btn-outline-primary me-1" data-edit="${p.id}">Edit</button>
+          <button class="btn btn-sm btn-outline-danger" data-delete="${p.id}">Delete</button>
+        </div>
+      `;
+      item.querySelector('[data-edit]').onclick = () => openPlaylistModal(p.id);
+      item.querySelector('[data-delete]').onclick = () => deletePlaylist(p.id, p.name);
+      list.appendChild(item);
+    });
+  } catch (e) {
+    list.innerHTML = `<div class="text-danger p-3">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[c]));
+}
+
+async function openPlaylistModal(id = null) {
+  const modalEl = document.getElementById('playlist-modal');
+  const modal = new bootstrap.Modal(modalEl);
+  document.getElementById('playlist-id').value = id || '';
+  document.getElementById('playlist-modal-title').textContent = id ? 'Edit Playlist' : 'New Playlist';
+  document.getElementById('playlist-name').value = '';
+  document.getElementById('playlist-description').value = '';
+  document.getElementById('playlist-public').checked = false;
+  document.getElementById('playlist-zips').value = '';
+  document.getElementById('playlist-channels-list').innerHTML = '';
+
+  if (id) {
+    const p = await fetchJSON(`/api/playlists/${id}`);
+    document.getElementById('playlist-name').value = p.name || '';
+    document.getElementById('playlist-description').value = p.description || '';
+    document.getElementById('playlist-public').checked = !!p.is_public;
+    document.getElementById('playlist-zips').value = (p.zip_codes || []).join('\n');
+    renderPlaylistChannels(p.channels || []);
+  }
+  modal.show();
+}
+
+function renderPlaylistChannels(channels) {
+  const container = document.getElementById('playlist-channels-list');
+  container.innerHTML = '';
+  if (!channels.length) {
+    container.innerHTML = '<div class="text-muted small">No channels</div>';
+    return;
+  }
+  channels.forEach(ch => {
+    const div = document.createElement('div');
+    div.className = 'd-flex justify-content-between align-items-center py-1 border-bottom';
+    div.innerHTML = `
+      <span class="small">${escapeHtml(ch.name)} <span class="text-muted">(${escapeHtml(ch.provider_name || '')})</span></span>
+      <button class="btn btn-sm btn-outline-danger" data-remove="${ch.provider_channel_id}">×</button>
+    `;
+    div.querySelector('[data-remove]').onclick = async () => {
+      const pid = document.getElementById('playlist-id').value;
+      if (!pid) return;
+      await fetchJSON(`/api/playlists/${pid}/channels`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ channel_ids: [ch.provider_channel_id] })
+      });
+      openPlaylistModal(pid);
+    };
+    container.appendChild(div);
+  });
+}
+
+async function savePlaylist() {
+  const id = document.getElementById('playlist-id').value;
+  const body = {
+    name: document.getElementById('playlist-name').value.trim(),
+    description: document.getElementById('playlist-description').value.trim(),
+    is_public: document.getElementById('playlist-public').checked
+  };
+  if (!body.name) return alert('Name is required');
+
+  let playlistId = id;
+  if (id) {
+    await fetchJSON(`/api/playlists/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+  } else {
+    const res = await fetchJSON('/api/playlists', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    playlistId = res.id;
+    document.getElementById('playlist-id').value = playlistId;
+  }
+
+  const zips = document.getElementById('playlist-zips').value.split('\n').map(z => z.trim()).filter(Boolean);
+  await fetchJSON(`/api/playlists/${playlistId}/zip-codes`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ zip_codes: zips })
+  });
+
+  bootstrap.Modal.getInstance(document.getElementById('playlist-modal')).hide();
+  loadPlaylists();
+}
+
+async function deletePlaylist(id, name) {
+  if (!confirm(`Delete playlist "${name}"?`)) return;
+  await fetchJSON(`/api/playlists/${id}`, { method: 'DELETE' });
+  loadPlaylists();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = document.getElementById('add-playlist-btn');
+  if (addBtn) addBtn.onclick = () => openPlaylistModal();
+  const saveBtn = document.getElementById('save-playlist-btn');
+  if (saveBtn) saveBtn.onclick = savePlaylist;
+
+  // Hook into view switching if the app uses data-view
+  document.querySelectorAll('[data-view="playlists"]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('section[id^="view-"]').forEach(s => s.classList.add('d-none'));
+      document.getElementById('view-playlists')?.classList.remove('d-none');
+      loadPlaylists();
+    });
+  });
+});
