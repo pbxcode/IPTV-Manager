@@ -5730,10 +5730,6 @@ async function loadPlaylists() {
   }
 }
 
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[c]));
-}
-
 async function openPlaylistModal(id = null) {
   const modalEl = document.getElementById('playlist-modal');
   const modal = new bootstrap.Modal(modalEl);
