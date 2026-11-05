@@ -9,13 +9,13 @@
  *   DATA_DIR=/opt/cdn node scripts/clean-stream-titles.mjs
  */
 
-import Database from 'better-sqlite3';
+import Database from 'epg.db';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..');
-const DB_PATH = path.join(DATA_DIR, 'iptv-manager.db');
+const DB_PATH = path.join(DATA_DIR, 'epg.db');
 
 function cleanStreamTitle(name) {
   if (!name || typeof name !== 'string') return name || '';
