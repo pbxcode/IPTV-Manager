@@ -72,7 +72,15 @@ export const getPlaylist = (req, res) => {
       ORDER BY pc.sort_order, ch.name
     `).all(id);
 
-    res.json({ ...playlist, zip_codes: zipCodes, channels });
+    const assignedUsers = db.prepare(`
+      SELECT u.id, u.username
+      FROM user_playlists up
+      JOIN users u ON u.id = up.user_id
+      WHERE up.playlist_id = ?
+      ORDER BY u.username
+    `).all(id);
+
+    res.json({ ...playlist, zip_codes: zipCodes, channels, assigned_users: assignedUsers });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -216,6 +224,51 @@ export const removeChannels = (req, res) => {
   }
 };
 
+
+function applyPlaylistToUser(playlistId, userId) {
+  const playlist = db.prepare('SELECT name FROM playlists WHERE id = ?').get(playlistId);
+  if (!playlist) return { added: 0 };
+
+  // Get or create a category for this playlist
+  let category = db.prepare(
+    'SELECT id FROM user_categories WHERE user_id = ? AND name = ? AND type = ?'
+  ).get(userId, playlist.name, 'live');
+
+  if (!category) {
+    const maxOrder = db.prepare(
+      'SELECT COALESCE(MAX(sort_order), 0) as m FROM user_categories WHERE user_id = ?'
+    ).get(userId).m;
+    const info = db.prepare(
+      'INSERT INTO user_categories (user_id, name, sort_order, type) VALUES (?, ?, ?, ?)'
+    ).run(userId, playlist.name, maxOrder + 1, 'live');
+    category = { id: info.lastInsertRowid };
+  }
+
+  const channels = db.prepare(
+    'SELECT provider_channel_id, sort_order FROM playlist_channels WHERE playlist_id = ? ORDER BY sort_order'
+  ).all(playlistId);
+
+  const exists = db.prepare(
+    'SELECT 1 FROM user_channels WHERE user_category_id = ? AND provider_channel_id = ?'
+  );
+  const insert = db.prepare(`
+    INSERT INTO user_channels
+      (user_category_id, provider_channel_id, sort_order, assignment_origin, granted_by_admin)
+    VALUES (?, ?, ?, 'manual', 1)
+  `);
+
+  let added = 0;
+  immediateTransaction(db, () => {
+    for (const ch of channels) {
+      if (exists.get(category.id, ch.provider_channel_id)) continue;
+      insert.run(category.id, ch.provider_channel_id, ch.sort_order || 0);
+      added++;
+    }
+  })();
+
+  return { categoryId: category.id, added };
+}
+
 export const assignToUser = (req, res) => {
   try {
     if (!req.user.is_admin) return res.status(403).json({ error: 'Access denied' });
@@ -232,8 +285,8 @@ export const assignToUser = (req, res) => {
 
     db.prepare('INSERT OR IGNORE INTO user_playlists (user_id, playlist_id) VALUES (?, ?)').run(userId, playlistId);
 
-    // Optionally copy channels into the user's categories (simple version: just record the assignment)
-    res.json({ success: true });
+    const applied = applyPlaylistToUser(playlistId, userId);
+    res.json({ success: true, ...applied });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
