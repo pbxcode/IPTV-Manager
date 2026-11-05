@@ -289,6 +289,63 @@ export function migrateUserNotes(db) {
   }
 }
 
+export function migrateProviderUserAssignments(db) {
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS provider_user_assignments (
+        provider_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        PRIMARY KEY (provider_id, user_id),
+        FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_pua_user ON provider_user_assignments(user_id);
+      CREATE INDEX IF NOT EXISTS idx_pua_provider ON provider_user_assignments(provider_id);
+    `);
+
+    // Migrate existing single owners
+    const migrated = db.prepare(`
+      INSERT OR IGNORE INTO provider_user_assignments (provider_id, user_id)
+      SELECT id, user_id FROM providers WHERE user_id IS NOT NULL
+    `).run().changes;
+
+    if (migrated > 0) {
+      console.log(`✅ DB Migration: migrated ${migrated} provider-user assignments`);
+    } else {
+      console.log('✅ DB Migration: provider_user_assignments table ready');
+    }
+  } catch (e) {
+    console.error('Provider user assignments migration error:', e);
+  }
+}
+
+export function migrateAuthorizedChannelsViewForAssignments(db) {
+  try {
+    db.exec(`
+      DROP VIEW IF EXISTS authorized_user_channels;
+      CREATE VIEW authorized_user_channels AS
+      SELECT uc.*
+      FROM user_channels uc
+      JOIN user_categories cat ON cat.id = uc.user_category_id
+      JOIN provider_channels pc ON pc.id = uc.provider_channel_id
+      JOIN providers p ON p.id = pc.provider_id
+      WHERE uc.is_hidden = 0
+        AND uc.authorization_revoked = 0
+        AND (
+          uc.granted_by_admin = 1
+          OR EXISTS (
+            SELECT 1 FROM provider_user_assignments pua
+            WHERE pua.provider_id = p.id AND pua.user_id = cat.user_id
+          )
+          OR p.user_id = cat.user_id
+        )
+    `);
+    console.log('✅ DB Migration: authorized_user_channels view updated for multi-user assignments');
+  } catch (e) {
+    console.error('Authorized channels view migration error:', e);
+  }
+}
+
 export function migratePlaylists(db) {
   try {
     db.exec(`
@@ -335,10 +392,18 @@ export function migratePlaylists(db) {
       CREATE INDEX IF NOT EXISTS idx_user_playlists_user ON user_playlists(user_id);
     `);
 
+    // Add zip_code column to users if missing
     const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
     if (!userCols.includes('zip_code')) {
       db.exec('ALTER TABLE users ADD COLUMN zip_code TEXT');
       console.log('✅ DB Migration: zip_code column added to users');
+    }
+
+    // Add category_label to playlist_channels if missing
+    const pcCols = db.prepare("PRAGMA table_info(playlist_channels)").all().map(c => c.name);
+    if (!pcCols.includes('category_label')) {
+      db.exec('ALTER TABLE playlist_channels ADD COLUMN category_label TEXT');
+      console.log('✅ DB Migration: category_label added to playlist_channels');
     }
 
     console.log('✅ DB Migration: playlists tables ready');
