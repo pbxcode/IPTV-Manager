@@ -5819,8 +5819,17 @@ async function savePlaylist() {
     body: JSON.stringify({ zip_codes: zips })
   });
 
-  const modal = bootstrap.Modal.getInstance(document.getElementById('playlist-modal'));
-  if (modal) modal.hide();
+  // Close modal and clean up backdrop
+  const modalEl = document.getElementById('playlist-modal');
+  const modal = bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl);
+  modal.hide();
+
+  // Force-remove leftover backdrop if Bootstrap leaves one
+  document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+  document.body.classList.remove('modal-open');
+  document.body.style.removeProperty('overflow');
+  document.body.style.removeProperty('padding-right');
+
   await loadPlaylists();
 }
 
