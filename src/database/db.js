@@ -366,6 +366,7 @@ export function initDb(isPrimary) {
             migrations.migrateUserChannelAdminGrants(db);
             migrations.migrateSyncConfigAdminGrants(db);
             migrations.migrateUserNotes(db);
+            migrations.migratePlaylists(db);
             if (typeof migrations.migrateProviderUseMappedEpgIcon === 'function') {
                 migrations.migrateProviderUseMappedEpgIcon(db);
             }
