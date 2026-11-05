@@ -5750,6 +5750,10 @@ async function openPlaylistModal(id = null) {
     document.getElementById('playlist-public').checked = !!p.is_public;
     document.getElementById('playlist-zips').value = (p.zip_codes || []).join('\n');
     renderPlaylistChannels(p.channels || []);
+    await refreshAssignedUsers(id);
+  } else {
+    const assignedList = document.getElementById('playlist-assigned-list');
+    if (assignedList) assignedList.textContent = '';
   }
   modal.show();
 }
@@ -5921,6 +5925,71 @@ async function addSelectedChannels() {
   }
 }
 
+
+async function loadPlaylistUsers() {
+  const select = document.getElementById('playlist-user-select');
+  const assignedList = document.getElementById('playlist-assigned-list');
+  if (!select) return;
+  select.innerHTML = '';
+  try {
+    const users = await fetchJSON('/api/users');
+    users.forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.username;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    select.innerHTML = '<option disabled>Failed to load users</option>';
+  }
+}
+
+async function refreshAssignedUsers(playlistId) {
+  const assignedList = document.getElementById('playlist-assigned-list');
+  if (!assignedList || !playlistId) return;
+  try {
+    const p = await fetchJSON(`/api/playlists/${playlistId}`);
+    const names = (p.assigned_users || []).map(u => u.username);
+    assignedList.textContent = names.length ? 'Assigned: ' + names.join(', ') : 'Not assigned to any users';
+  } catch (e) {
+    assignedList.textContent = '';
+  }
+}
+
+async function assignPlaylistUsers() {
+  const playlistId = document.getElementById('playlist-id').value;
+  if (!playlistId) return alert('Save the playlist first');
+  const select = document.getElementById('playlist-user-select');
+  const ids = Array.from(select.selectedOptions).map(o => Number(o.value));
+  if (!ids.length) return alert('Select at least one user');
+  for (const userId of ids) {
+    await fetchJSON(`/api/playlists/${playlistId}/assign`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ user_id: userId })
+    });
+  }
+  await refreshAssignedUsers(playlistId);
+  alert('Assigned');
+}
+
+async function unassignPlaylistUsers() {
+  const playlistId = document.getElementById('playlist-id').value;
+  if (!playlistId) return;
+  const select = document.getElementById('playlist-user-select');
+  const ids = Array.from(select.selectedOptions).map(o => Number(o.value));
+  if (!ids.length) return alert('Select at least one user');
+  for (const userId of ids) {
+    await fetchJSON(`/api/playlists/${playlistId}/assign`, {
+      method: 'DELETE',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ user_id: userId })
+    });
+  }
+  await refreshAssignedUsers(playlistId);
+  alert('Unassigned');
+}
+
 // Bind all playlist UI after DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   const addBtn = document.getElementById('add-playlist-btn');
@@ -5943,4 +6012,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const addChBtn = document.getElementById('playlist-add-channels-btn');
   if (addChBtn) addChBtn.onclick = openChannelPicker;
+
+  const assignBtn = document.getElementById('playlist-assign-btn');
+  if (assignBtn) assignBtn.onclick = assignPlaylistUsers;
+  const unassignBtn = document.getElementById('playlist-unassign-btn');
+  if (unassignBtn) unassignBtn.onclick = unassignPlaylistUsers;
+
+  loadPlaylistUsers();
 });

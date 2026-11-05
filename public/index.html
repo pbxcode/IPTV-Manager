@@ -1562,6 +1562,14 @@
             <div id="playlist-channels-list" class="border rounded p-2" style="max-height:200px;overflow:auto;"></div>
             <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="playlist-add-channels-btn">Add Channels</button>
           </div>
+          <div class="mb-3" id="playlist-assign-section">
+            <label class="form-label">Assign to Users</label>
+            <select class="form-select" id="playlist-user-select" multiple size="5"></select>
+            <div class="form-text small">Select users (Ctrl/Cmd + click) then click Assign.</div>
+            <button type="button" class="btn btn-sm btn-outline-success mt-2" id="playlist-assign-btn">Assign Selected</button>
+            <button type="button" class="btn btn-sm btn-outline-danger mt-2 ms-1" id="playlist-unassign-btn">Unassign Selected</button>
+            <div id="playlist-assigned-list" class="mt-2 small text-muted"></div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
