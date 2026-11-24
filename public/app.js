@@ -1175,7 +1175,7 @@ async function loadProviders(filterUserId = null) {
 
   // Filter for display
   const providersToRender = targetUserId
-      ? providers.filter(p => p.user_id == targetUserId)
+      ? providers.filter(p => p.user_id == targetUserId || (Array.isArray(p.assigned_user_ids) && p.assigned_user_ids.some(id => id == targetUserId)))
       : [];
 
   if (providersToRender.length === 0) {
