@@ -74,6 +74,14 @@ export const getProviders = (req, res) => {
     }
 
     const providers = db.prepare(query).all(...params);
+    const assignedStmt = db.prepare('SELECT user_id FROM provider_user_assignments WHERE provider_id = ?');
+    for (const p of providers) {
+      try {
+        p.assigned_user_ids = assignedStmt.all(p.id).map(r => r.user_id);
+      } catch {
+        p.assigned_user_ids = [];
+      }
+    }
     const canViewProviderDetails = req.user.is_admin || Number(req.user.provider_access) === 1;
     const safeProviders = providers.map(p => {
       if (!canViewProviderDetails) {
@@ -215,6 +223,11 @@ export const createProvider = async (req, res) => {
       use_mapped_epg_icon ? 1 : 0,
       parsedTimezone.value
     );
+
+    if (user_id) {
+      db.prepare('INSERT OR IGNORE INTO provider_user_assignments (provider_id, user_id) VALUES (?, ?)')
+        .run(info.lastInsertRowid, Number(user_id));
+    }
 
     // Check expiry
     await checkProviderExpiry(info.lastInsertRowid);
