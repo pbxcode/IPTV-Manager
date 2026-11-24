@@ -66,8 +66,11 @@ export const getProviders = (req, res) => {
     const params = [];
 
     if (user_id) {
-      query += ' WHERE p.user_id = ?';
-      params.push(Number(user_id));
+      query += ` WHERE p.user_id = ? OR EXISTS (
+        SELECT 1 FROM provider_user_assignments pua
+        WHERE pua.provider_id = p.id AND pua.user_id = ?
+      )`;
+      params.push(Number(user_id), Number(user_id));
     }
 
     const providers = db.prepare(query).all(...params);
