@@ -779,6 +779,16 @@ export async function performSync(providerId, userId, options = {}) {
         }
       }
 
+      // Only write channels in categories this user has mapped,
+      // unless auto_add_categories is enabled.
+      const mappedCategoryKeys = new Set();
+      if (!(config && config.auto_add_categories)) {
+        for (const [key, mapping] of mappingLookup) {
+          if (mapping?.user_category_id) mappedCategoryKeys.add(key);
+        }
+      }
+      const allowAllCategories = mappedCategoryKeys.size === 0 || Boolean(config && config.auto_add_categories);
+
       // 2. Process Channels
       for (let i = 0; i < allChannels.length; i++) {
         const ch = allChannels[i];
@@ -796,6 +806,10 @@ export async function performSync(providerId, userId, options = {}) {
               !completeStreamTypes.has(existingRow.stream_type || 'live')) continue;
           const catId = Number(ch.category_id || 0);
           const catType = ch.category_type || 'live';
+          if (!allowAllCategories) {
+            const key = `${catId}_${catType}`;
+            if (!mappedCategoryKeys.has(key) && !(catType !== 'live' && mappedCategoryKeys.has(`${catId}_live`))) continue;
+          }
           const mappingTargets = getMappedTargets(catId, catType);
           const mimeType = normalizeContainerExtension(
             ch.container_extension,
