@@ -1,15 +1,13 @@
 import { createHash } from 'node:crypto';
 import { clearChannelsCache } from '../services/cacheService.js';
 import db from '../database/db.js';
-import { isUserAssignedToProvider } from '../utils/helpers.js';
 import { discardBody, fetchSafe, readBodyWithLimit } from '../utils/network.js';
 import { decrypt } from '../utils/crypto.js';
 import { isAdultCategory, sanitizeErrorMessage } from '../utils/helpers.js';
-import { cleanStreamTitle } from '../utils/streamTitleCleaner.js';
 import { normalizeContainerExtension } from '../utils/containerExtension.js';
 import { prePopulateProviderIconCache } from './logoResolver.js';
 import { isTrustedMappingAssignment } from './userChannelAssignmentService.js';
-import { createXtreamClient, describeCatalogFailures, fetchProviderCatalog } from './providerCatalogSyncService.js';
+import { describeCatalogFailures, fetchProviderCatalog } from './providerCatalogSyncService.js';
 import { captureSyncSnapshot, recordSyncSnapshot, scheduleSyncFollowups } from './ai/syncHistory.js';
 import { acquireProviderLock, describeLockConflict } from './providerLockService.js';
 import { immediateTransaction } from '../database/sqliteWrites.js';
@@ -503,7 +501,7 @@ export async function performSync(providerId, userId, options = {}) {
     if (!provider) throw new Error('Provider not found');
     assertManualSyncActor(options);
     assertQueuedSyncExpectation(provider, config, options);
-    const crossOwner = !isUserAssignedToProvider(db, userId, providerId);
+    const crossOwner = Number(provider.user_id) !== Number(userId);
     const hasPersistedGrant = Number(config?.granted_by_admin) === 1;
     const hasManualGrant = isManual && options?.allowCrossOwner === true;
 
@@ -522,7 +520,7 @@ export async function performSync(providerId, userId, options = {}) {
       return { channelsAdded, channelsUpdated, categoriesAdded, errorMessage, status: 'error' };
     }
 
-    // Check expiry (non-blocking or blocking? blocking is safer to ensure updated data)
+    // Refresh provider expiry before fetching its catalog.
     await checkProviderExpiry(providerId);
 
     // Decrypt password for usage
@@ -531,15 +529,14 @@ export async function performSync(providerId, userId, options = {}) {
     console.info(`🔄 Starting sync for provider ${provider.name} (user ${userId})`);
 
     // Fetch and normalize the provider catalog before applying local mappings.
-    const xtream = createXtreamClient(fetchProvider);
     const { allChannels, allCategories, completeStreamTypes, snapshotStates, failures } =
-      await fetchProviderCatalog(fetchProvider, xtream);
+      await fetchProviderCatalog(fetchProvider);
     catalogFailures = failures || [];
 
     const applyStartedAt = Date.now();
     immediateTransaction(db, () => {
       config = assertSyncTargetStillValid(providerId, userId, provider, options, config);
-      const crossOwner = !isUserAssignedToProvider(db, userId, providerId);
+      const crossOwner = Number(provider.user_id) !== Number(userId);
       const hasPersistedGrant = Number(config?.granted_by_admin) === 1;
       const assignmentGrant = crossOwner ? 1 : 0;
       const restoreRevokedAssignments = crossOwner && (
@@ -782,16 +779,6 @@ export async function performSync(providerId, userId, options = {}) {
         }
       }
 
-      // Option A: only write channels in categories this user has mapped
-      // (unless auto_add_categories is on). Cuts write volume on large catalogs.
-      const mappedCategoryKeys = new Set();
-      if (!(config && config.auto_add_categories)) {
-        for (const [key, mapping] of mappingLookup) {
-          if (mapping?.user_category_id) mappedCategoryKeys.add(key);
-        }
-      }
-      const allowAllCategories = !mappedCategoryKeys.size || (config && config.auto_add_categories);
-
       // 2. Process Channels
       for (let i = 0; i < allChannels.length; i++) {
         const ch = allChannels[i];
@@ -809,11 +796,6 @@ export async function performSync(providerId, userId, options = {}) {
               !completeStreamTypes.has(existingRow.stream_type || 'live')) continue;
           const catId = Number(ch.category_id || 0);
           const catType = ch.category_type || 'live';
-          if (!allowAllCategories) {
-            const key = `${catId}_${catType}`;
-            const liveKey = `${catId}_live`;
-            if (!mappedCategoryKeys.has(key) && !mappedCategoryKeys.has(liveKey)) continue;
-          }
           const mappingTargets = getMappedTargets(catId, catType);
           const mimeType = normalizeContainerExtension(
             ch.container_extension,
@@ -864,7 +846,7 @@ export async function performSync(providerId, userId, options = {}) {
           if (existingId) {
             // Optimization: Check if update is needed
             // Normalize values for comparison (DB returns numbers/nulls, inputs might be different types)
-            const newName = cleanStreamTitle(ch.name || 'Unknown');
+            const newName = ch.name || 'Unknown';
             const newCatId = Number(ch.category_id || 0);
             const newLogo = ch.stream_icon || ch.cover || '';
             const newEpgId = ch.epg_channel_id || '';
@@ -971,7 +953,7 @@ export async function performSync(providerId, userId, options = {}) {
             const info = insertChannel.run(
               providerId,
               sid,
-              cleanStreamTitle(ch.name || 'Unknown'),
+              ch.name || 'Unknown',
               Number(ch.category_id || 0),
               ch.stream_icon || ch.cover || '',
               streamType,
