@@ -288,3 +288,28 @@ export function migrateUserNotes(db) {
     console.error('User notes migration error:', e);
   }
 }
+
+export function migrateProviderUserAssignments(db) {
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS provider_user_assignments (
+        provider_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        PRIMARY KEY (provider_id, user_id),
+        FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_pua_user ON provider_user_assignments(user_id);
+      CREATE INDEX IF NOT EXISTS idx_pua_provider ON provider_user_assignments(provider_id);
+    `);
+    const migrated = db.prepare(`
+      INSERT OR IGNORE INTO provider_user_assignments (provider_id, user_id)
+      SELECT id, user_id FROM providers WHERE user_id IS NOT NULL
+    `).run().changes;
+    console.log(migrated > 0
+      ? `✅ DB Migration: migrated ${migrated} provider-user assignments`
+      : '✅ DB Migration: provider_user_assignments table ready');
+  } catch (e) {
+    console.error('Provider user assignments migration error:', e);
+  }
+}
