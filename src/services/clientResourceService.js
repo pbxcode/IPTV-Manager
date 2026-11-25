@@ -232,7 +232,8 @@ export async function resolveClientResource(req) {
     if (!shareAllowed(authorizedUser, payload.channelId)) return null;
     if (payload.providerId && !payload.channelId) {
       const provider = db.prepare('SELECT user_id FROM providers WHERE id = ?').get(payload.providerId);
-      if (!provider || (!payload.admin && Number(provider.user_id) !== Number(user.id))) return null;
+      const assigned = db.prepare('SELECT 1 FROM provider_user_assignments WHERE provider_id = ? AND user_id = ?').get(payload.providerId, user.id);
+      if (!provider || (!payload.admin && Number(provider.user_id) !== Number(user.id) && !assigned)) return null;
     }
 
     let channel;
