@@ -228,7 +228,14 @@ export function migrateUserChannelAdminGrants(db) {
       JOIN providers p ON p.id = pc.provider_id
       WHERE uc.is_hidden = 0
         AND uc.authorization_revoked = 0
-        AND (p.user_id = cat.user_id OR uc.granted_by_admin = 1)
+        AND (
+          p.user_id = cat.user_id
+          OR uc.granted_by_admin = 1
+          OR EXISTS (
+            SELECT 1 FROM provider_user_assignments pua
+            WHERE pua.provider_id = p.id AND pua.user_id = cat.user_id
+          )
+        )
     `);
 
     db.prepare(`
@@ -311,5 +318,33 @@ export function migrateProviderUserAssignments(db) {
       : '✅ DB Migration: provider_user_assignments table ready');
   } catch (e) {
     console.error('Provider user assignments migration error:', e);
+  }
+}
+
+
+export function migrateSharedProviderAuthorization(db) {
+  try {
+    db.exec(`
+      DROP VIEW IF EXISTS authorized_user_channels;
+      CREATE VIEW authorized_user_channels AS
+      SELECT uc.*
+      FROM user_channels uc
+      JOIN user_categories cat ON cat.id = uc.user_category_id
+      JOIN provider_channels pc ON pc.id = uc.provider_channel_id
+      JOIN providers p ON p.id = pc.provider_id
+      WHERE uc.is_hidden = 0
+        AND uc.authorization_revoked = 0
+        AND (
+          p.user_id = cat.user_id
+          OR uc.granted_by_admin = 1
+          OR EXISTS (
+            SELECT 1 FROM provider_user_assignments pua
+            WHERE pua.provider_id = p.id AND pua.user_id = cat.user_id
+          )
+        );
+    `);
+    console.log('✅ DB Migration: shared provider authorization view ready');
+  } catch (e) {
+    console.error('Shared provider authorization migration error:', e);
   }
 }

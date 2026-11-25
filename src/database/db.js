@@ -367,6 +367,7 @@ export function initDb(isPrimary) {
             migrations.migrateSyncConfigAdminGrants(db);
             migrations.migrateUserNotes(db);
             migrations.migrateProviderUserAssignments(db);
+            migrations.migrateSharedProviderAuthorization(db);
             if (typeof migrations.migrateProviderUseMappedEpgIcon === 'function') {
                 migrations.migrateProviderUseMappedEpgIcon(db);
             }
