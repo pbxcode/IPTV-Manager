@@ -46,7 +46,10 @@ export const createSyncConfig = (req, res) => {
       return res.status(404).json({error: 'User not found'});
     }
 
-    const grantedByAdmin = resolveAssignmentGrant({
+    const isAssigned = db.prepare(
+      'SELECT 1 FROM provider_user_assignments WHERE provider_id = ? AND user_id = ?'
+    ).get(providerId, userId);
+    const grantedByAdmin = isAssigned ? 1 : resolveAssignmentGrant({
       categoryOwnerId: userId,
       providerOwnerId: provider.user_id,
       isAdmin: true,
